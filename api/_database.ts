@@ -1,18 +1,26 @@
-import Database from 'better-sqlite3';
-import path from 'path';
+import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
 
-let db: Database.Database | null = null;
+let db: SqlJsDatabase | null = null;
 
-export function initDatabase() {
+export async function initDatabase() {
   if (db) return db;
 
-  // Use /tmp for serverless (ephemeral filesystem)
-  const dbPath = process.env.VERCEL ? '/tmp/database.sqlite' : './database.sqlite';
+  const SQL = await initSqlJs();
   
-  db = new Database(dbPath);
+  // Try to load existing database from /tmp (Vercel)
+  try {
+    const savedDb = await fetch('/api/db').then(r => r.arrayBuffer()).catch(() => null);
+    if (savedDb) {
+      db = new SQL.Database(new Uint8Array(savedDb));
+    } else {
+      db = new SQL.Database();
+    }
+  } catch {
+    db = new SQL.Database();
+  }
 
-  // Users table
-  db.exec(`
+  // Create tables
+  db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT NOT NULL UNIQUE,
@@ -22,21 +30,18 @@ export function initDatabase() {
     )
   `);
 
-  // Categories table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       icon TEXT,
       color TEXT,
       user_id INTEGER,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-  // Transactions table
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
@@ -45,9 +50,7 @@ export function initDatabase() {
       type TEXT NOT NULL CHECK(type IN ('income', 'expense')),
       category_id INTEGER,
       date DATE NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (category_id) REFERENCES categories(id)
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
@@ -63,16 +66,43 @@ export function initDatabase() {
     { name: 'Other', icon: '📦', color: '#6b7280' },
   ];
 
-  const insertCategory = db.prepare('INSERT OR IGNORE INTO categories (name, icon, color) VALUES (?, ?, ?)');
   for (const cat of defaultCategories) {
-    insertCategory.run(cat.name, cat.icon, cat.color);
+    try {
+      db.run('INSERT INTO categories (name, icon, color) VALUES (?, ?, ?)', [cat.name, cat.icon, cat.color]);
+    } catch {
+      // Ignore duplicates
+    }
   }
 
-  console.log('✅ Database initialized');
+  console.log('✅ Database initialized (sql.js)');
   return db;
 }
 
 export function getDb() {
-  if (!db) initDatabase();
-  return db!;
+  if (!db) throw new Error('Database not initialized');
+  return db;
+}
+
+// Helper to convert sql.js result to array of objects
+export function queryAll(sql: string, params: any[] = []): any[] {
+  const stmt = getDb().prepare(sql);
+  stmt.bind(params);
+  const results: any[] = [];
+  while (stmt.step()) {
+    results.push(stmt.getAsObject());
+  }
+  stmt.free();
+  return results;
+}
+
+export function queryOne(sql: string, params: any[] = []): any {
+  const results = queryAll(sql, params);
+  return results[0] || null;
+}
+
+export function run(sql: string, params: any[] = []): { lastInsertRowid: number; changes: number } {
+  getDb().run(sql, params);
+  const lastId = queryOne('SELECT last_insert_rowid() as id');
+  const changes = getDb().getRowsModified();
+  return { lastInsertRowid: lastId?.id || 0, changes };
 }
