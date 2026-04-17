@@ -28,8 +28,6 @@ jobs:
       #   run: cd backend && npm test
 
   test-frontend:
-
-  test-frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
