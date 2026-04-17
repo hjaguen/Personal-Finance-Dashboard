@@ -1,0 +1,8 @@
+{
+  "testEnvironment": "node",
+  "transform": {},
+  "testMatch": ["**/tests/**/*.test.js"],
+  "collectCoverage": false,
+  "coverageDirectory": "coverage",
+  "testTimeout": 10000
+}
