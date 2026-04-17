@@ -2,8 +2,5 @@
   "name": "finance-dashboard-api",
   "version": "1.0.0",
   "type": "module",
-  "main": "index.ts",
-  "dependencies": {
-    "sql.js": "^1.10.0"
-  }
+  "main": "index.ts"
 }
